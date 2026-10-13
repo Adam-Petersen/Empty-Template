@@ -1,0 +1,49 @@
+#include "types.h"
+
+extern u16 load_var_value(u16 var_id);
+void calculate_mon_stats(u8* mon);
+void heal_player_party();
+
+// https://bulbapedia.bulbagarden.net/wiki/Pok%C3%A9mon_data_structure_(Generation_III)
+// Data substructure not encrypted in RAM
+const u8 *player_party = (u8*) 0x02024284;
+const u16 PARTY_MON_SIZE = 100;
+const u16 PARTY_MON_SPECIES_OFFSET = 32;
+const u16 PARTY_MON_EXPERIENCE_OFFSET = 36;
+const u16 PARTY_MON_LEVEL_OFFSET = 84;
+
+// Each species has a block of 28 bytes, the growth rate is at offset 19
+const u8 *pokemon_base_data = (u8*) 0x099778E0;
+const u16 POKEMON_BASE_DATA_SIZE = 28;
+const u16 POKEMON_BASE_DATA_GROWTH_RATE_OFFSET = 19;
+
+// There are 6 level up tables corresponding to growth rates 0-5, each has 256 entries of 4 bytes
+const u8 *level_up_tables = (u8*) 0x094C41FC;
+const u16 LEVEL_UP_TABLE_SIZE = 1024;
+
+// In addition to setting the level byte, we also need to set the experience to the minimum required for that level
+void setPartyLevel(void)
+{
+    u16 desired_level = load_var_value(0x4000);
+
+    for (u8 i = 0; i < 6; i++) {
+        // Load party member and determine species
+        u8 *party_member = player_party + (i * PARTY_MON_SIZE);
+        u16 species = *(u16 *)(party_member + PARTY_MON_SPECIES_OFFSET);
+
+        // Determine growth rate of the species
+        u8 *base_data_for_species = pokemon_base_data + (species * POKEMON_BASE_DATA_SIZE);
+        u8 growth_rate = *(u8 *)(base_data_for_species + POKEMON_BASE_DATA_GROWTH_RATE_OFFSET);
+
+        // Determine new experience required for desired level
+        u8 *level_up_table = level_up_tables + (growth_rate * LEVEL_UP_TABLE_SIZE);
+        u32 new_experience = *(u32 *)(level_up_table + (desired_level * 4));
+
+        // Set new level and experience values
+        *(u8 *)(party_member + PARTY_MON_LEVEL_OFFSET) = (u8)desired_level;
+        *(u32 *)(party_member + PARTY_MON_EXPERIENCE_OFFSET) = new_experience;
+
+        calculate_mon_stats(party_member);
+        heal_player_party();
+    }
+}
